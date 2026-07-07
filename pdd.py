@@ -68,7 +68,7 @@ if master_file:
 
         # ---------------- 核心计算逻辑 ----------------
         # 1. 剔除完全没付钱和一开始就取消的无效订单，计算真实的“有效发货基本盘”
-        valid_orders_df = df[~df[status_col].str.contains('待付款|已取消', na=False)]
+        valid_orders_df = df[~df[status_col].str.contains('待付款|已取消', na=False)].copy()
         
         # 2. 从有效订单中，抓取所有发生过退款的订单
         valid_orders_df['是否退款'] = valid_orders_df[status_col].str.contains('退款|售后', na=False)
@@ -81,10 +81,15 @@ if master_file:
             
         # 统计单品总有效销量
         order_summary = valid_orders_df.groupby(id_col)[qty_col].sum().reset_index(name='有效订单件数')
+        order_summary.rename(columns={id_col: '商品标识'}, inplace=True) # <-- 修复点：统一下列名
         
         # 统计单品退款量
         returns_df = valid_orders_df[valid_orders_df['是否退款']].copy()
-        refund_summary = returns_df.groupby(id_col)[qty_col].sum().reset_index(name='退款件数')
+        if not returns_df.empty:
+            refund_summary = returns_df.groupby(id_col)[qty_col].sum().reset_index(name='退款件数')
+        else:
+            refund_summary = pd.DataFrame(columns=[id_col, '退款件数'])
+        refund_summary.rename(columns={id_col: '商品标识'}, inplace=True) # <-- 修复点：统一下列名
         
         # 合并大表
         final_df = pd.merge(order_summary, refund_summary, on='商品标识', how='left').fillna(0)
@@ -126,7 +131,7 @@ if master_file:
         avg_rate = round((total_refunds / total_orders * 100), 2) if total_orders > 0 else 0
         
         m1, m2, m3 = st.columns(3)
-        m1.metric("剔除无效后的有效订单总件数", f"{total_orders} 件")
+        m1.metric("剔除无效后的有效订单总数", f"{total_orders} 件")
         m2.metric("总退款/售后件数", f"{total_refunds} 件")
         m3.metric("大盘平均真实退款率", f"{avg_rate} %")
         
@@ -158,7 +163,6 @@ if master_file:
             else:
                 with st.spinner("AI 正在深度剖析致命退款原因，请稍候..."):
                     try:
-                        # 重点：修改为全类目通用的诊断指令
                         prompt = f"""
                         你是一位资深的拼多多全类目运营专家。下面是我们通过订单总表提取出的核心退货数据（包含款号与各退款原因占比）：
                         
